@@ -120,6 +120,9 @@
 		};
 	};
 };
+&mdss_dsi_phy0 { 
+   qcom,panel-allow-phy-poweroff;
+};
 //add by gongdb for touch panel end
 
 //add by huanghuan for audio start
