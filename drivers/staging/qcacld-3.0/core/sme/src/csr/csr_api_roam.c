@@ -4572,8 +4572,8 @@ QDF_STATUS csr_roam_prepare_bss_config(struct mac_context *mac,
 	if (((pBssConfig->uCfgDot11Mode == eCSR_CFG_DOT11_MODE_11N)
 	    || (pBssConfig->uCfgDot11Mode == eCSR_CFG_DOT11_MODE_11AC))
 		&& ((pBssConfig->qosType != eCSR_MEDIUM_ACCESS_WMM_eDCF_DSCP)
-		    && (pBssConfig->qosType != eCSR_MEDIUM_ACCESS_11e_HCF)
-		    && (pBssConfig->qosType != eCSR_MEDIUM_ACCESS_11e_eDCF))) {
+		    || (pBssConfig->qosType != eCSR_MEDIUM_ACCESS_11e_HCF)
+		    || (pBssConfig->qosType != eCSR_MEDIUM_ACCESS_11e_eDCF))) {
 		/* Joining BSS is 11n capable and WMM is disabled on AP. */
 		/* Assume all HT AP's are QOS AP's and enable WMM */
 		pBssConfig->qosType = eCSR_MEDIUM_ACCESS_WMM_eDCF_DSCP;
@@ -20001,6 +20001,7 @@ csr_roam_switch_to_deinit(struct mac_context *mac, uint8_t vdev_id,
 		return status;
 
 	mlme_set_roam_state(mac->psoc, vdev_id, ROAM_DEINIT);
+	mlme_clear_operations_bitmap(mac->psoc, vdev_id);
 
 	if (reason != REASON_SUPPLICANT_INIT_ROAMING)
 		csr_enable_roaming_on_connected_sta(mac, vdev_id);
