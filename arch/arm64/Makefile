@@ -18,8 +18,16 @@ ifeq ($(CONFIG_RELOCATABLE), y)
 # Pass --no-apply-dynamic-relocs to restore pre-binutils-2.27 behaviour
 # for relative relocs, since this leads to better Image compression
 # with the relocation offsets always being zero.
-LDFLAGS_vmlinux		+= -pie -shared -Bsymbolic \
+LDFLAGS_vmlinux		+= -Bsymbolic -z notext -z norelro  \
 			$(call ld-option, --no-apply-dynamic-relocs)
+
+# Pass -shared for bfd and -pie for lld to minimize Image size on both
+ifeq ($(ld-name),bfd)
+LDFLAGS_vmlinux		+= -shared
+endif
+ifeq ($(ld-name),lld)
+LDFLAGS_vmlinux		+= -pie
+endif
 endif
 
 ifeq ($(CONFIG_ARM64_ERRATUM_843419),y)
@@ -57,15 +65,20 @@ KBUILD_CFLAGS	+= $(call cc-disable-warning, psabi)
 KBUILD_CFLAGS	+= -fno-pic
 KBUILD_AFLAGS	+= $(lseinstr)
 
+KBUILD_CFLAGS	+= $(call cc-option,-mabi=lp64)
+KBUILD_AFLAGS	+= $(call cc-option,-mabi=lp64)
+
 ifeq ($(CONFIG_CPU_BIG_ENDIAN), y)
 KBUILD_CPPFLAGS	+= -mbig-endian
 AS		+= -EB
 LD		+= -EB
+LDFLAGS		+= -maarch64linuxb
 UTS_MACHINE	:= aarch64_be
 else
 KBUILD_CPPFLAGS	+= -mlittle-endian
 AS		+= -EL
 LD		+= -EL
+LDFLAGS		+= -maarch64linux
 UTS_MACHINE	:= aarch64
 endif
 
@@ -97,6 +110,7 @@ endif
 
 ifeq ($(cc-name),clang)
 KBUILD_CFLAGS += $(call cc-disable-warning, asm-operand-widths)
+KBUILD_CFLAGS += -mcpu=cortex-a75+crypto+crc
 endif
 
 # KASAN_SHADOW_OFFSET = VA_START + (1 << (VA_BITS - 3)) - (1 << 61)

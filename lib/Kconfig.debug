@@ -207,7 +207,7 @@ config ENABLE_MUST_CHECK
 	  attribute warn_unused_result" messages.
 
 config FRAME_WARN
-	int "Warn for stack frames larger than (needs gcc 4.4)"
+	int "Warn for stack frames larger than"
 	range 0 8192
 	default 2048 if GCC_PLUGIN_LATENT_ENTROPY
 	default 1024 if !64BIT
@@ -216,7 +216,6 @@ config FRAME_WARN
 	  Tell gcc to warn at build time for stack frames larger than this.
 	  Setting this too low will cause a lot of warnings.
 	  Setting it to 0 disables the warning.
-	  Requires gcc 4.4
 
 config STRIP_ASM_SYMS
 	bool "Strip assembler-generated symbols during link"
@@ -304,6 +303,20 @@ config HEADERS_CHECK
 	  relevant for userspace, say 'Y', and check the headers
 	  exported to $(INSTALL_HDR_PATH) (usually 'usr/include' in
 	  your build tree), to make sure they're suitable.
+
+config OPTIMIZE_INLINING
+	bool "Allow compiler to uninline functions marked 'inline'"
+	help
+	  This option determines if the kernel forces gcc to inline the functions
+	  developers have marked 'inline'. Doing so takes away freedom from gcc to
+	  do what it thinks is best, which is desirable for the gcc 3.x series of
+	  compilers. The gcc 4.x series have a rewritten inlining algorithm and
+	  enabling this option will generate a smaller kernel there. Hopefully
+	  this algorithm is so good that allowing gcc 4.x and above to make the
+	  decision will become the default in the future. Until then this option
+	  is there to test gcc for this.
+
+	  If unsure, say N.
 
 config DEBUG_SECTION_MISMATCH
 	bool "Enable full Section mismatch analysis"

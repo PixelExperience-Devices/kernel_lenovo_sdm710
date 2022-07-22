@@ -638,6 +638,7 @@ static void _sde_crtc_deinit_events(struct sde_crtc *sde_crtc)
 		return;
 }
 
+#ifdef CONFIG_DEBUG_FS
 static int _sde_debugfs_fps_status_show(struct seq_file *s, void *data)
 {
 	struct sde_crtc *sde_crtc;
@@ -681,6 +682,7 @@ static int _sde_debugfs_fps_status(struct inode *inode, struct file *file)
 	return single_open(file, _sde_debugfs_fps_status_show,
 			inode->i_private);
 }
+#endif
 
 static ssize_t vsync_event_show(struct device *device,
 	struct device_attribute *attr, char *buf)
@@ -935,19 +937,25 @@ void sde_crtc_get_crtc_roi(struct drm_crtc_state *state,
 	*crtc_roi = &crtc_state->crtc_roi;
 }
 
-bool sde_crtc_is_crtc_roi_dirty(struct drm_crtc_state *state)
+bool sde_crtc_is_property_dirty(const struct drm_crtc_state *state,
+				uint32_t prop)
 {
-	struct sde_crtc_state *cstate;
-	struct sde_crtc *sde_crtc;
+	const struct sde_crtc_state *cstate;
+	const struct sde_crtc *sde_crtc;
 
-	if (!state || !state->crtc)
+	if (unlikely(!state || !state->crtc))
 		return false;
 
 	sde_crtc = to_sde_crtc(state->crtc);
 	cstate = to_sde_crtc_state(state);
 
 	return msm_property_is_dirty(&sde_crtc->property_info,
-			&cstate->property_state, CRTC_PROP_ROI_V1);
+				     &cstate->property_state, prop);
+}
+
+bool sde_crtc_is_crtc_roi_dirty(struct drm_crtc_state *state)
+{
+	return sde_crtc_is_property_dirty(state, CRTC_PROP_ROI_V1);
 }
 
 static int _sde_crtc_set_roi_v1(struct drm_crtc_state *state,

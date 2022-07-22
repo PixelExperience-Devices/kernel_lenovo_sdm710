@@ -459,6 +459,21 @@ void __init __weak thread_stack_cache_init(void)
 }
 #endif
 
+/* Report memory auto-initialization states for this boot. */
+static void __init report_meminit(void)
+{
+	const char *stack;
+
+	if (IS_ENABLED(CONFIG_INIT_STACK_ALL_PATTERN))
+		stack = "all(pattern)";
+	else if (IS_ENABLED(CONFIG_INIT_STACK_ALL_ZERO))
+		stack = "all(zero)";
+	else
+		stack = "off";
+
+	pr_info("mem auto-init: stack:%s\n",stack);
+}
+
 /*
  * Set up kernel memory allocators
  */
@@ -469,6 +484,7 @@ static void __init mm_init(void)
 	 * bigger than MAX_ORDER unless SPARSEMEM.
 	 */
 	page_ext_init_flatmem();
+	report_meminit();
 	mem_init();
 	/* page_owner must be initialized after buddy is ready */
 	page_ext_init_flatmem_late();
