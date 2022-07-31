@@ -3872,6 +3872,7 @@ static struct platform_driver adreno_platform_driver = {
 		.name = DEVICE_3D_NAME,
 		.pm = &kgsl_pm_ops,
 		.of_match_table = adreno_match_table,
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	}
 };
 
@@ -3905,7 +3906,7 @@ static struct platform_driver kgsl_bus_platform_driver = {
 	}
 };
 
-static int __init kgsl_3d_init(void)
+static int __kgsl_3d_init(void *arg)
 {
 	int ret;
 
@@ -3918,6 +3919,16 @@ static int __init kgsl_3d_init(void)
 		platform_driver_unregister(&kgsl_bus_platform_driver);
 
 	return ret;
+}
+
+static int __init kgsl_3d_init(void)
+{
+	struct task_struct *kgsl_3d_init_task =
+		kthread_run(__kgsl_3d_init, NULL, "kgsl_3d_init");
+	if (IS_ERR(kgsl_3d_init_task))
+		return PTR_ERR(kgsl_3d_init_task);
+	else
+		return 0;
 }
 
 static void __exit kgsl_3d_exit(void)
