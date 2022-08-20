@@ -25,6 +25,7 @@
 #include <linux/export.h>
 #include <linux/suspend.h>
 #include <linux/syscore_ops.h>
+#include <linux/swait.h>
 #include <linux/ftrace.h>
 #include <linux/rtc.h>
 #include <trace/events/power.h>
@@ -34,15 +35,26 @@
 
 #include "power.h"
 
-const char *pm_labels[] = { "mem", "standby", "freeze", NULL };
-const char *pm_states[PM_SUSPEND_MAX];
+const char *pm_states[PM_SUSPEND_MAX] = {
+	[PM_SUSPEND_FREEZE] = "freeze",
+	[PM_SUSPEND_MEM] = "mem",
+};
+const char * const mem_sleep_labels[] = {
+	[PM_SUSPEND_FREEZE] = "s2idle",
+	[PM_SUSPEND_STANDBY] = "shallow",
+	[PM_SUSPEND_MEM] = "deep",
+};
+const char *mem_sleep_states[PM_SUSPEND_MAX];
+
+suspend_state_t mem_sleep_current = PM_SUSPEND_FREEZE;
+static suspend_state_t mem_sleep_default = PM_SUSPEND_MEM;
 
 unsigned int pm_suspend_global_flags;
 EXPORT_SYMBOL_GPL(pm_suspend_global_flags);
 
 static const struct platform_suspend_ops *suspend_ops;
 static const struct platform_freeze_ops *freeze_ops;
-static DECLARE_WAIT_QUEUE_HEAD(suspend_freeze_wait_head);
+static DECLARE_SWAIT_QUEUE_HEAD(suspend_freeze_wait_head);
 
 enum freeze_state __read_mostly suspend_freeze_state;
 static DEFINE_SPINLOCK(suspend_freeze_lock);
@@ -53,6 +65,8 @@ void freeze_set_ops(const struct platform_freeze_ops *ops)
 	freeze_ops = ops;
 	unlock_system_sleep();
 }
+
+extern void thaw_fingerprintd(void);
 
 static void freeze_begin(void)
 {
@@ -75,7 +89,7 @@ static void freeze_enter(void)
 	wake_up_all_idle_cpus();
 	pr_debug("PM: suspend-to-idle\n");
 	/* Make the current CPU wait so it can enter the idle loop too. */
-	wait_event(suspend_freeze_wait_head,
+	swait_event(suspend_freeze_wait_head,
 		   suspend_freeze_state == FREEZE_STATE_WAKE);
 	pr_debug("PM: resume from suspend-to-idle\n");
 
@@ -96,7 +110,7 @@ void freeze_wake(void)
 	spin_lock_irqsave(&suspend_freeze_lock, flags);
 	if (suspend_freeze_state > FREEZE_STATE_NONE) {
 		suspend_freeze_state = FREEZE_STATE_WAKE;
-		wake_up(&suspend_freeze_wait_head);
+		swake_up(&suspend_freeze_wait_head);
 	}
 	spin_unlock_irqrestore(&suspend_freeze_lock, flags);
 }
@@ -112,30 +126,29 @@ static bool valid_state(suspend_state_t state)
 	return suspend_ops && suspend_ops->valid && suspend_ops->valid(state);
 }
 
-/*
- * If this is set, the "mem" label always corresponds to the deepest sleep state
- * available, the "standby" label corresponds to the second deepest sleep state
- * available (if any), and the "freeze" label corresponds to the remaining
- * available sleep state (if there is one).
- */
-static bool relative_states;
-
 void __init pm_states_init(void)
 {
 	/*
-	 * freeze state should be supported even without any suspend_ops,
-	 * initialize pm_states accordingly here
+	 * Suspend-to-idle should be supported even without any suspend_ops,
+	 * initialize mem_sleep_states[] accordingly here.
 	 */
-	pm_states[PM_SUSPEND_FREEZE] = pm_labels[relative_states ? 0 : 2];
+	mem_sleep_states[PM_SUSPEND_FREEZE] = mem_sleep_labels[PM_SUSPEND_FREEZE];
 }
 
-static int __init sleep_states_setup(char *str)
+static int __init mem_sleep_default_setup(char *str)
 {
-	relative_states = !strncmp(str, "1", 1);
+	suspend_state_t state;
+
+	for (state = PM_SUSPEND_FREEZE; state <= PM_SUSPEND_MEM; state++)
+		if (mem_sleep_labels[state] &&
+		    !strcmp(str, mem_sleep_labels[state])) {
+			mem_sleep_default = state;
+			break;
+		}
+
 	return 1;
 }
-
-__setup("relative_sleep_states=", sleep_states_setup);
+__setup("mem_sleep_default=", mem_sleep_default_setup);
 
 /**
  * suspend_set_ops - Set the global suspend method table.
@@ -143,21 +156,21 @@ __setup("relative_sleep_states=", sleep_states_setup);
  */
 void suspend_set_ops(const struct platform_suspend_ops *ops)
 {
-	suspend_state_t i;
-	int j = 0;
-
 	lock_system_sleep();
 
 	suspend_ops = ops;
-	for (i = PM_SUSPEND_MEM; i >= PM_SUSPEND_STANDBY; i--)
-		if (valid_state(i)) {
-			pm_states[i] = pm_labels[j++];
-		} else if (!relative_states) {
-			pm_states[i] = NULL;
-			j++;
-		}
 
-	pm_states[PM_SUSPEND_FREEZE] = pm_labels[j];
+	if (valid_state(PM_SUSPEND_STANDBY)) {
+		mem_sleep_states[PM_SUSPEND_STANDBY] = mem_sleep_labels[PM_SUSPEND_STANDBY];
+		pm_states[PM_SUSPEND_STANDBY] = "standby";
+		if (mem_sleep_default == PM_SUSPEND_STANDBY)
+			mem_sleep_current = PM_SUSPEND_STANDBY;
+	}
+	if (valid_state(PM_SUSPEND_MEM)) {
+		mem_sleep_states[PM_SUSPEND_MEM] = mem_sleep_labels[PM_SUSPEND_MEM];
+		if (mem_sleep_default == PM_SUSPEND_MEM)
+			mem_sleep_current = PM_SUSPEND_MEM;
+	}
 
 	unlock_system_sleep();
 }
@@ -295,6 +308,7 @@ static int suspend_prepare(suspend_state_t state)
 	if (!error)
 		return 0;
 
+	log_suspend_abort_reason("One or more tasks refusing to freeze");
 	suspend_stats.failed_freeze++;
 	dpm_save_failed_step(SUSPEND_FREEZE);
  Finish:
@@ -324,7 +338,6 @@ void __weak arch_suspend_enable_irqs(void)
  */
 static int suspend_enter(suspend_state_t state, bool *wakeup)
 {
-	char suspend_abort[MAX_SUSPEND_ABORT_LEN];
 	int error, last_dev;
 
 	error = platform_suspend_prepare(state);
@@ -382,6 +395,8 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 	arch_suspend_disable_irqs();
 	BUG_ON(!irqs_disabled());
 
+	system_state = SYSTEM_SUSPEND;
+
 	error = syscore_suspend();
 	if (!error) {
 		*wakeup = pm_wakeup_pending();
@@ -393,13 +408,14 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 				state, false);
 			events_check_enabled = false;
 		} else if (*wakeup) {
-			pm_get_active_wakeup_sources(suspend_abort,
-				MAX_SUSPEND_ABORT_LEN);
-			log_suspend_abort_reason(suspend_abort);
 			error = -EBUSY;
 		}
+
+		start_logging_wakeup_reasons();
 		syscore_resume();
 	}
+
+	system_state = SYSTEM_RUNNING;
 
 	arch_suspend_enable_irqs();
 	BUG_ON(irqs_disabled());
@@ -408,6 +424,8 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 	enable_nonboot_cpus();
 
  Platform_wake:
+	thaw_fingerprintd();
+
 	platform_resume_noirq(state);
 	dpm_resume_noirq(PMSG_RESUME);
 
@@ -510,6 +528,7 @@ static int enter_state(suspend_state_t state)
 	if (!mutex_trylock(&pm_mutex))
 		return -EBUSY;
 
+	pm_wakeup_clear();
 	if (state == PM_SUSPEND_FREEZE)
 		freeze_begin();
 

@@ -71,7 +71,9 @@ static const struct dev_pm_ops mmc_pm_ops = {
 static struct class mmc_host_class = {
 	.name		= "mmc_host",
 	.dev_release	= mmc_host_classdev_release,
+	#ifndef CONFIG_SUSPEND_SKIP_SYNC
 	.pm		= &mmc_pm_ops,
+	#endif
 };
 
 int mmc_register_host_class(void)
@@ -472,6 +474,16 @@ int mmc_retune(struct mmc_host *host)
 
 		if (host->ops->prepare_hs400_tuning)
 			host->ops->prepare_hs400_tuning(host, &host->ios);
+
+		/*
+		 * Timing should be adjusted to the HS400 target
+		 * operation frequency for tuning process.
+		 * Similar handling is also done in mmc_hs200_tuning()
+		 * This is handled properly in sdhci-msm.c from msm-5.4 onwards.
+		 */
+		if (host->card->mmc_avail_type & EXT_CSD_CARD_TYPE_HS400 &&
+			host->ios.bus_width == MMC_BUS_WIDTH_8)
+			mmc_set_timing(host, MMC_TIMING_MMC_HS400);
 	}
 
 	err = mmc_execute_tuning(host->card);

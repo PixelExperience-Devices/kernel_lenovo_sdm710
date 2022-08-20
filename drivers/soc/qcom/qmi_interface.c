@@ -40,19 +40,8 @@
 #define MAX_WQ_NAME_LEN 20
 #define QMI_REQ_RESP_LOG_PAGES 3
 #define QMI_IND_LOG_PAGES 2
-#define QMI_REQ_RESP_LOG(buf...) \
-do { \
-	if (qmi_req_resp_log_ctx) { \
-		ipc_log_string(qmi_req_resp_log_ctx, buf); \
-	} \
-} while (0) \
-
-#define QMI_IND_LOG(buf...) \
-do { \
-	if (qmi_ind_log_ctx) { \
-		ipc_log_string(qmi_ind_log_ctx, buf); \
-	} \
-} while (0) \
+#define QMI_REQ_RESP_LOG(buf...) ((void)0)
+#define QMI_IND_LOG(buf...) ((void)0)
 
 static LIST_HEAD(svc_event_nb_list);
 static DEFINE_MUTEX(svc_event_nb_list_lock);
@@ -2115,6 +2104,7 @@ static void qmi_svc_event_notifier_init(void)
  */
 void qmi_log_init(void)
 {
+#ifdef CONFIG_IPC_LOGGING
 	qmi_req_resp_log_ctx =
 		ipc_log_context_create(QMI_REQ_RESP_LOG_PAGES,
 			"kqmi_req_resp", 0);
@@ -2126,6 +2116,7 @@ void qmi_log_init(void)
 	if (!qmi_ind_log_ctx)
 		pr_err("%s: Unable to create QMI IPC %s",
 				"logging for Indications", __func__);
+#endif
 }
 
 /**

@@ -68,6 +68,12 @@ KBUILD_AFLAGS	+= $(lseinstr)
 KBUILD_CFLAGS	+= $(call cc-option,-mabi=lp64)
 KBUILD_AFLAGS	+= $(call cc-option,-mabi=lp64)
 
+ifeq ($(cc-name),clang)
+KBUILD_CFLAGS	+= -DCONFIG_ARCH_SUPPORTS_INT128
+else
+KBUILD_CFLAGS	+= $(call cc-ifversion, -ge, 0500, -DCONFIG_ARCH_SUPPORTS_INT128)
+endif
+
 ifeq ($(CONFIG_CPU_BIG_ENDIAN), y)
 KBUILD_CPPFLAGS	+= -mbig-endian
 AS		+= -EB
@@ -143,6 +149,10 @@ endif
 
 KBUILD_DTBS	:= dtbs
 
+KBUILD_BOOT_IMG := boot.img
+
+KBUILD_DTBO_IMG := dtbo.img
+
 ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
 export DTC_FLAGS := -@
 endif
@@ -173,6 +183,14 @@ dtbs_install:
 
 Image-dtb Image.gz-dtb: vmlinux scripts dtbs
 	$(Q)$(MAKE) $(build)=$(boot) $(boot)/$@
+
+$(KBUILD_BOOT_IMG): Image.gz-dtb
+	$(Q)$(MAKE) $(build)=$(boot) $(boot)/$@
+
+$(KBUILD_DTBO_IMG): dtbs
+	$(Q)$(MAKE) $(build)=$(boot) $(boot)/$@
+
+all: $(KBUILD_BOOT_IMG) $(KBUILD_DTBO_IMG)
 
 PHONY += vdso_install
 vdso_install:

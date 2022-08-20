@@ -23,13 +23,13 @@
 #include <linux/f2fs_fs.h>
 #include <linux/sysfs.h>
 #include <linux/quota.h>
+#include <linux/cleancache.h>
 
 #include "f2fs.h"
 #include "node.h"
 #include "segment.h"
 #include "xattr.h"
 #include "gc.h"
-#include "trace.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/f2fs.h>
@@ -400,24 +400,8 @@ static int parse_options(struct super_block *sb, char *options)
 
 		switch (token) {
 		case Opt_gc_background:
-			name = match_strdup(&args[0]);
-
-			if (!name)
-				return -ENOMEM;
-			if (strlen(name) == 2 && !strncmp(name, "on", 2)) {
-				set_opt(sbi, BG_GC);
-				clear_opt(sbi, FORCE_FG_GC);
-			} else if (strlen(name) == 3 && !strncmp(name, "off", 3)) {
-				clear_opt(sbi, BG_GC);
-				clear_opt(sbi, FORCE_FG_GC);
-			} else if (strlen(name) == 4 && !strncmp(name, "sync", 4)) {
-				set_opt(sbi, BG_GC);
-				set_opt(sbi, FORCE_FG_GC);
-			} else {
-				kvfree(name);
-				return -EINVAL;
-			}
-			kvfree(name);
+			clear_opt(sbi, BG_GC);
+			clear_opt(sbi, FORCE_FG_GC);
 			break;
 		case Opt_disable_roll_forward:
 			set_opt(sbi, DISABLE_ROLL_FORWARD);
@@ -738,24 +722,7 @@ static int parse_options(struct super_block *sb, char *options)
 			kvfree(name);
 			break;
 		case Opt_fsync:
-			name = match_strdup(&args[0]);
-			if (!name)
-				return -ENOMEM;
-			if (strlen(name) == 5 &&
-					!strncmp(name, "posix", 5)) {
-				F2FS_OPTION(sbi).fsync_mode = FSYNC_MODE_POSIX;
-			} else if (strlen(name) == 6 &&
-					!strncmp(name, "strict", 6)) {
-				F2FS_OPTION(sbi).fsync_mode = FSYNC_MODE_STRICT;
-			} else if (strlen(name) == 9 &&
-					!strncmp(name, "nobarrier", 9)) {
-				F2FS_OPTION(sbi).fsync_mode =
-							FSYNC_MODE_NOBARRIER;
-			} else {
-				kvfree(name);
-				return -EINVAL;
-			}
-			kvfree(name);
+			pr_info("F2FS-fs: changing fsync mode not supported");
 			break;
 		case Opt_test_dummy_encryption:
 #ifdef CONFIG_FS_ENCRYPTION
@@ -1150,7 +1117,6 @@ int f2fs_sync_fs(struct super_block *sb, int sync)
 		err = f2fs_write_checkpoint(sbi, &cpc);
 		up_write(&sbi->gc_lock);
 	}
-	f2fs_trace_ios(NULL, 1);
 
 	return err;
 }
@@ -1443,7 +1409,7 @@ static void default_options(struct f2fs_sb_info *sbi)
 	F2FS_OPTION(sbi).inline_xattr_size = DEFAULT_INLINE_XATTR_ADDRS;
 	F2FS_OPTION(sbi).whint_mode = WHINT_MODE_OFF;
 	F2FS_OPTION(sbi).alloc_mode = ALLOC_MODE_DEFAULT;
-	F2FS_OPTION(sbi).fsync_mode = FSYNC_MODE_POSIX;
+	F2FS_OPTION(sbi).fsync_mode = FSYNC_MODE_NOBARRIER;
 	F2FS_OPTION(sbi).test_dummy_encryption = false;
 	F2FS_OPTION(sbi).s_resuid = make_kuid(&init_user_ns, F2FS_DEF_RESUID);
 	F2FS_OPTION(sbi).s_resgid = make_kgid(&init_user_ns, F2FS_DEF_RESGID);
@@ -3504,6 +3470,8 @@ reset_checkpoint:
 	f2fs_update_time(sbi, CP_TIME);
 	f2fs_update_time(sbi, REQ_TIME);
 	clear_sbi_flag(sbi, SBI_CP_DISABLED_QUICK);
+
+	cleancache_init_fs(sb);
 	return 0;
 
 sync_free_meta:
@@ -3646,8 +3614,6 @@ static int __init init_f2fs_fs(void)
 		return -EINVAL;
 	}
 
-	f2fs_build_trace_ios();
-
 	err = init_inodecache();
 	if (err)
 		goto fail;
@@ -3724,7 +3690,6 @@ static void __exit exit_f2fs_fs(void)
 	f2fs_destroy_segment_manager_caches();
 	f2fs_destroy_node_manager_caches();
 	destroy_inodecache();
-	f2fs_destroy_trace_ios();
 }
 
 module_init(init_f2fs_fs)

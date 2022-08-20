@@ -75,6 +75,7 @@ int smpcfd_dying_cpu(unsigned int cpu)
 	 * still pending.
 	 */
 	flush_smp_call_function_queue(false);
+	irq_work_run();
 	return 0;
 }
 
@@ -182,6 +183,14 @@ static int generic_exec_single(int cpu, struct call_single_data *csd,
 void generic_smp_call_function_single_interrupt(void)
 {
 	flush_smp_call_function_queue(true);
+
+	/*
+	 * Handle irq works queued remotely by irq_work_queue_on().
+	 * Smp functions above are typically synchronous so they
+	 * better run first since some other CPUs may be busy waiting
+	 * for them.
+	 */
+	irq_work_run();
 }
 
 /**
@@ -200,8 +209,8 @@ void generic_smp_call_function_single_interrupt(void)
  */
 static void flush_smp_call_function_queue(bool warn_cpu_offline)
 {
+	struct llist_node *entry, *prev;
 	struct llist_head *head;
-	struct llist_node *entry;
 	struct call_single_data *csd, *csd_next;
 	static bool warned;
 
@@ -226,27 +235,38 @@ static void flush_smp_call_function_queue(bool warn_cpu_offline)
 				csd->func);
 	}
 
+	/*
+	 * First; run all SYNC callbacks, people are waiting for us.
+	 */
+	prev = NULL;
 	llist_for_each_entry_safe(csd, csd_next, entry, llist) {
 		smp_call_func_t func = csd->func;
 		void *info = csd->info;
 
 		/* Do we wait until *after* callback? */
 		if (csd->flags & CSD_FLAG_SYNCHRONOUS) {
+			if (prev) {
+				prev->next = &csd_next->llist;
+			} else {
+				entry = &csd_next->llist;
+			}
 			func(info);
 			csd_unlock(csd);
 		} else {
-			csd_unlock(csd);
-			func(info);
+			prev = &csd->llist;
 		}
 	}
 
 	/*
-	 * Handle irq works queued remotely by irq_work_queue_on().
-	 * Smp functions above are typically synchronous so they
-	 * better run first since some other CPUs may be busy waiting
-	 * for them.
+	 * Second; run all !SYNC callbacks.
 	 */
-	irq_work_run();
+	llist_for_each_entry_safe(csd, csd_next, entry, llist) {
+		smp_call_func_t func = csd->func;
+		void *info = csd->info;
+
+		csd_unlock(csd);
+		func(info);
+	}
 }
 
 /*

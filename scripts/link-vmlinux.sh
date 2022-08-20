@@ -94,7 +94,7 @@ modpost_link()
 	local objects
 
 	if [ -n "${CONFIG_THIN_ARCHIVES}" ]; then
-		objects="--whole-archive built-in.o"
+		objects="--whole-archive built-in.o --no-whole-archive"
 	else
 		objects="${KBUILD_VMLINUX_INIT}				\
 			--start-group					\
@@ -144,7 +144,7 @@ vmlinux_link()
 		fi
 
 		if [[ -n "${CONFIG_THIN_ARCHIVES}" && -z "${CONFIG_LTO_CLANG}" ]]; then
-			objects="--whole-archive built-in.o ${1}"
+			objects="--whole-archive built-in.o ${1} --no-whole-archive"
 		else
 			objects="${KBUILD_VMLINUX_INIT}			\
 				--start-group				\
@@ -156,7 +156,7 @@ vmlinux_link()
 		${ld} ${ldflags} -o ${2} -T ${lds} ${objects}
 	else
 		if [ -n "${CONFIG_THIN_ARCHIVES}" ]; then
-			objects="-Wl,--whole-archive built-in.o ${1}"
+			objects="-Wl,--whole-archive built-in.o ${1} -Wl,--no-whole-archive"
 		else
 			objects="${KBUILD_VMLINUX_INIT}			\
 				-Wl,--start-group			\
@@ -287,14 +287,7 @@ if [ "$1" = "clean" ]; then
 fi
 
 # We need access to CONFIG_ symbols
-case "${KCONFIG_CONFIG}" in
-*/*)
-	. "${KCONFIG_CONFIG}"
-	;;
-*)
-	# Force using a file from the current directory
-	. "./${KCONFIG_CONFIG}"
-esac
+. include/config/auto.conf
 
 # Update version
 info GEN .version
@@ -306,6 +299,9 @@ else
 	expr 0$(cat .old_version) + 1 >.version;
 fi;
 
+# final build of init/
+${MAKE} -f "${srctree}/scripts/Makefile.build" obj=init GCC_PLUGINS_CFLAGS="${GCC_PLUGINS_CFLAGS}"
+
 archive_builtin
 
 #link vmlinux.o
@@ -314,8 +310,6 @@ modpost_link vmlinux.o
 # modpost vmlinux.o to check for section mismatches
 ${MAKE} -f "${srctree}/scripts/Makefile.modpost" vmlinux.o
 
-# final build of init/
-${MAKE} -f "${srctree}/scripts/Makefile.build" obj=init GCC_PLUGINS_CFLAGS="${GCC_PLUGINS_CFLAGS}"
 
 if [ -n "${CONFIG_LTO_CLANG}" ]; then
 	# Re-use vmlinux.o, so we can avoid the slow LTO link step in

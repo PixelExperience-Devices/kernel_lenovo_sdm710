@@ -1,4 +1,3 @@
-ccflags-y += -Ofast
 obj-$(CONFIG_ION) +=	ion.o ion_heap.o ion_page_pool.o ion_system_heap.o \
 			ion_carveout_heap.o ion_chunk_heap.o ion_system_secure_heap.o
 ifdef CONFIG_ION_MSM
@@ -13,3 +12,5 @@ obj-$(CONFIG_ION_TEGRA) += tegra/
 obj-$(CONFIG_ION_HISI) += hisilicon/
 
 obj-$(CONFIG_ION_MSM) += msm/
+
+CFLAGS_ion_system_heap.o += -Wframe-larger-than=8192

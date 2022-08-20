@@ -243,7 +243,9 @@ static struct bus_type mmc_bus_type = {
 	.probe		= mmc_bus_probe,
 	.remove		= mmc_bus_remove,
 	.shutdown	= mmc_bus_shutdown,
+	#ifndef CONFIG_SUSPEND_SKIP_SYNC
 	.pm		= &mmc_bus_pm_ops,
+	#endif
 };
 
 int mmc_register_bus(void)
@@ -397,6 +399,8 @@ int mmc_add_card(struct mmc_card *card)
 			pr_err("%s: %s: failed to init wakeup: %d\n",
 			       mmc_hostname(card->host), __func__, ret);
 	}
+
+	device_enable_async_suspend(&card->dev);
 
 	ret = device_add(&card->dev);
 	if (ret)

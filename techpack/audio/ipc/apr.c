@@ -79,12 +79,7 @@ static const struct file_operations apr_debug_ops = {
 };
 #endif
 
-#define APR_PKT_INFO(x...) \
-do { \
-	if (apr_pkt_ctx) \
-		ipc_log_string(apr_pkt_ctx, "<APR>: "x); \
-} while (0)
-
+#define APR_PKT_INFO(x...) ((void)0)
 
 struct apr_svc_table {
 	char name[64];
@@ -1163,10 +1158,12 @@ static int apr_probe(struct platform_device *pdev)
 	if (!apr_reset_workqueue)
 		return -ENOMEM;
 
+#ifdef CONFIG_IPC_LOGGING
 	apr_pkt_ctx = ipc_log_context_create(APR_PKT_IPC_LOG_PAGE_CNT,
 						"apr", 0);
 	if (!apr_pkt_ctx)
 		pr_err("%s: Unable to create ipc log context\n", __func__);
+#endif
 
 	is_initial_boot = true;
 	subsys_notif_register("apr_adsp", AUDIO_NOTIFIER_ADSP_DOMAIN,

@@ -53,9 +53,6 @@ module_param_named(debug_mask, msm_ipc_router_debug_mask,
 #define IPC_RTR_INFO_PAGES 6
 
 #define IPC_RTR_INFO(log_ctx, x...) do { \
-typeof(log_ctx) _log_ctx = (log_ctx); \
-if (_log_ctx) \
-	ipc_log_string(_log_ctx, x); \
 if (msm_ipc_router_debug_mask & RTR_DBG) \
 	pr_info("[IPCRTR] "x); \
 } while (0)
@@ -4017,7 +4014,11 @@ static void debugfs_init(void) {}
  */
 static void *ipc_router_create_log_ctx(char *name)
 {
+#ifdef CONFIG_IPC_LOGGING
 	struct ipc_rtr_log_ctx *sub_log_ctx;
+
+	if (!IS_ENABLED(CONFIG_IPC_LOGGING))
+		return NULL;
 
 	sub_log_ctx = kmalloc(sizeof(*sub_log_ctx), GFP_KERNEL);
 	if (!sub_log_ctx)
@@ -4034,6 +4035,9 @@ static void *ipc_router_create_log_ctx(char *name)
 	INIT_LIST_HEAD(&sub_log_ctx->list);
 	list_add_tail(&sub_log_ctx->list, &log_ctx_list);
 	return sub_log_ctx->log_ctx;
+#else
+	return NULL;
+#endif
 }
 
 static void ipc_router_log_ctx_init(void)

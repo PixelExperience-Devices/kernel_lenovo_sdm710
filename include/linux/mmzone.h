@@ -35,7 +35,10 @@
  */
 #define PAGE_ALLOC_COSTLY_ORDER 3
 
+#define MAX_KSWAPD_THREADS 7
+
 enum {
+
 	MIGRATE_UNMOVABLE,
 	MIGRATE_MOVABLE,
 	MIGRATE_RECLAIMABLE,
@@ -179,7 +182,23 @@ enum node_stat_item {
 	NR_VMSCAN_IMMEDIATE,	/* Prioritise for reclaim when writeback ends */
 	NR_DIRTIED,		/* page dirtyings since bootup */
 	NR_WRITTEN,		/* page writings since bootup */
+	/*
+	 * Currently, NR_INDIRECTLY_RECLAIMABLE_BYTES covers only memory in ion
+	 * system heap pool(If user free memory allocated from system heap via
+	 * pool, it could stay this ION heap pool until memory pressure happens
+	 * or reallocated so that it consumes the memory) so we could regard it
+	 * as the amount of ION heap system heap pool.
+	 * Upstream is going to change it with new stuff so don't bother to
+	 * follow it at this moment. https://lkml.org/lkml/2018/7/18/505
+	 */
 	NR_INDIRECTLY_RECLAIMABLE_BYTES, /* measured in bytes */
+	/*
+	 * NR_ION_HEAP covers every allocation from ION heap system heap.
+	 * It means it already includes NR_INDIRECTLY_RECLAIMABLE_BYTES.
+	 * Therefore, the amount of ION heap application using at this moment
+	 * is NR_ION_HEAP - (NR_INDIRECTLY_RECLAIMABLE_BYTES / PAGE_SIZE).
+	 */
+	NR_ION_HEAP,
 	NR_VM_NODE_STAT_ITEMS
 };
 
@@ -640,8 +659,13 @@ typedef struct pglist_data {
 	int node_id;
 	wait_queue_head_t kswapd_wait;
 	wait_queue_head_t pfmemalloc_wait;
-	struct task_struct *kswapd;	/* Protected by
-					   mem_hotplug_begin/end() */
+	struct task_struct *kswapd;
+#ifdef CONFIG_MULTIPLE_KSWAPD
+	/*
+	 * Protected by mem_hotplug_begin/end()
+	 */
+	struct task_struct *mkswapd[MAX_KSWAPD_THREADS];
+#endif
 	int kswapd_order;
 	enum zone_type kswapd_classzone_idx;
 
@@ -877,6 +901,9 @@ static inline int is_highmem(struct zone *zone)
 
 /* These two functions are used to setup the per zone pages min values */
 struct ctl_table;
+int kswapd_threads_sysctl_handler(struct ctl_table *table, int write,
+					void __user *buffer, size_t *length,
+					loff_t *pos);
 int min_free_kbytes_sysctl_handler(struct ctl_table *, int,
 					void __user *, size_t *, loff_t *);
 int watermark_scale_factor_sysctl_handler(struct ctl_table *, int,

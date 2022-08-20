@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2020, 2021 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -360,6 +360,10 @@ static int32_t cam_eeprom_get_dev_handle(struct cam_eeprom_ctrl_t *e_ctrl,
 
 	eeprom_acq_dev.device_handle =
 		cam_create_device_hdl(&bridge_params);
+	if (eeprom_acq_dev.device_handle <= 0) {
+		CAM_ERR(CAM_EEPROM, "Can not create device handle");
+		return -EFAULT;
+	}
 	e_ctrl->bridge_intf.device_hdl = eeprom_acq_dev.device_handle;
 	e_ctrl->bridge_intf.session_hdl = eeprom_acq_dev.session_handle;
 
@@ -889,6 +893,17 @@ power_down:
 memdata_free:
 	vfree(e_ctrl->cal_data.mapdata);
 error:
+	/*Try to release the device handle when EEPROM read failed*/
+	if (e_ctrl->cam_eeprom_state >= CAM_EEPROM_ACQUIRE) {
+		int ret = 0;
+		ret = cam_destroy_device_hdl(e_ctrl->bridge_intf.device_hdl);
+		if (ret < 0)
+			CAM_ERR(CAM_EEPROM, "destroying the device hdl");
+
+		e_ctrl->bridge_intf.device_hdl = -1;
+		e_ctrl->bridge_intf.link_hdl = -1;
+		e_ctrl->bridge_intf.session_hdl = -1;
+	}
 	kfree(power_info->power_setting);
 	kfree(power_info->power_down_setting);
 	power_info->power_setting = NULL;

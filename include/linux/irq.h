@@ -199,6 +199,7 @@ struct irq_data {
  * IRQD_WAKEUP_ARMED		- Wakeup mode armed
  * IRQD_FORWARDED_TO_VCPU	- The interrupt is forwarded to a VCPU
  * IRQD_AFFINITY_MANAGED	- Affinity is auto-managed by the kernel
+ * IRQD_PERF_CRITICAL		- IRQ is performance-critical
  */
 enum {
 	IRQD_TRIGGER_MASK		= 0xf,
@@ -216,6 +217,7 @@ enum {
 	IRQD_WAKEUP_ARMED		= (1 << 19),
 	IRQD_FORWARDED_TO_VCPU		= (1 << 20),
 	IRQD_AFFINITY_MANAGED		= (1 << 21),
+	IRQD_PERF_CRITICAL		= (1 << 22),
 };
 
 #define __irqd_to_state(d) ACCESS_PRIVATE((d)->common, state_use_accessors)
@@ -503,16 +505,16 @@ static inline int irq_set_parent(int irq, int parent_irq)
  * Built-in IRQ handlers for various IRQ types,
  * callable via desc->handle_irq()
  */
-extern void handle_level_irq(struct irq_desc *desc);
-extern void handle_fasteoi_irq(struct irq_desc *desc);
-extern void handle_edge_irq(struct irq_desc *desc);
-extern void handle_edge_eoi_irq(struct irq_desc *desc);
-extern void handle_simple_irq(struct irq_desc *desc);
-extern void handle_untracked_irq(struct irq_desc *desc);
-extern void handle_percpu_irq(struct irq_desc *desc);
-extern void handle_percpu_devid_irq(struct irq_desc *desc);
-extern void handle_bad_irq(struct irq_desc *desc);
-extern void handle_nested_irq(unsigned int irq);
+extern bool handle_level_irq(struct irq_desc *desc);
+extern bool handle_fasteoi_irq(struct irq_desc *desc);
+extern bool handle_edge_irq(struct irq_desc *desc);
+extern bool handle_edge_eoi_irq(struct irq_desc *desc);
+extern bool handle_simple_irq(struct irq_desc *desc);
+extern bool handle_untracked_irq(struct irq_desc *desc);
+extern bool handle_percpu_irq(struct irq_desc *desc);
+extern bool handle_percpu_devid_irq(struct irq_desc *desc);
+extern bool handle_bad_irq(struct irq_desc *desc);
+extern bool handle_nested_irq(unsigned int irq);
 
 extern int irq_chip_compose_msi_msg(struct irq_data *data, struct msi_msg *msg);
 extern int irq_chip_pm_get(struct irq_data *data);

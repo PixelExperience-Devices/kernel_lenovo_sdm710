@@ -324,6 +324,32 @@ $(obj)/%.dtb: $(src)/%.dts FORCE
 
 dtc-tmp = $(subst $(comma),_,$(dot-target).dts.tmp)
 
+# mkbootimg
+#----------------------------------------------------------------------------
+quiet_cmd_mkbootimg = BOOTIMG $@
+cmd_mkbootimg = \
+	python3 $(srctree)/scripts/mkbootimg.py \
+	--header_version 0 \
+	--os_version 11.0.0 \
+	--os_patch_level $(shell date +%Y-%m) \
+	--kernel $(filter-out FORCE,$^) \
+	--ramdisk $(shell if [ -f $(obj)/empty ]; then true; else touch $(obj)/empty; fi; echo $(obj)/empty) \
+	--pagesize 0x00001000 \
+	--base 0x00000000 \
+	--kernel_offset 0x00008000 \
+	--ramdisk_offset 0x00000000 \
+	--second_offset 0x00000000 \
+	--tags_offset 0x00000100 \
+	--board '' \
+	--cmdline 'console=ttyMSM0,115200n8 earlycon=msm_geni_serial,0xA90000 androidboot.hardware=qcom androidboot.console=ttyMSM0 video=vfb:640x400,bpp=32,memsize=3072000 msm_rtb.filter=0x237 ehci-hcd.park=3 lpm_levels.sleep_disabled=1 service_locator.enable=1 androidboot.configfs=true androidboot.usbcontroller=a600000.dwc3 swiotlb=1 loop.max_part=7 buildvariant=user' \
+	--out $@ \
+	&& rm -rf $(obj)/empty
+
+# mkdtboimg
+#----------------------------------------------------------------------------
+quiet_cmd_mkdtboimg = DTBOIMG $@
+cmd_mkdtboimg = python2 $(srctree)/scripts/dtc/libfdt/mkdtboimg.py create $@ --page_size=4096 $(filter-out FORCE,$^)
+
 # cat
 # ---------------------------------------------------------------------------
 # Concatentate multiple files together
@@ -424,6 +450,29 @@ quiet_cmd_xzmisc = XZMISC  $@
 cmd_xzmisc = (cat $(filter-out FORCE,$^) | \
 	xz --check=crc32 --lzma2=dict=1MiB) > $@ || \
 	(rm -f $@ ; false)
+
+
+# ZSTD
+# ---------------------------------------------------------------------------
+# Appends the uncompressed size of the data using size_append. The .zst
+# format has the size information available at the beginning of the file too,
+# but it's in a more complex format and it's good to avoid changing the part
+# of the boot code that reads the uncompressed size.
+#
+# Note that the bytes added by size_append will make the zstd tool think that
+# the file is corrupt. This is expected.
+#
+# zstd uses a maximum window size of 8 MB. zstd22 uses a maximum window size of
+# 128 MB. zstd22 is used for kernel compression because it is decompressed in a
+# single pass, so zstd doesn't need to allocate a window buffer. When streaming
+# decompression is used, like initramfs decompression, zstd22 should likely not
+# be used because it would require zstd to allocate a 128 MB buffer.
+
+quiet_cmd_zstd = ZSTD    $@
+      cmd_zstd = { cat $(real-prereqs) | $(ZSTD) -19; $(size_append); } > $@
+
+quiet_cmd_zstd22 = ZSTD22  $@
+      cmd_zstd22 = { cat $(real-prereqs) | $(ZSTD) -22 --ultra; $(size_append); } > $@
 
 # ASM offsets
 # ---------------------------------------------------------------------------

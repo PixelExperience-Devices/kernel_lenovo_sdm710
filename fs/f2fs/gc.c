@@ -23,7 +23,7 @@
 #include "gc.h"
 #include <trace/events/f2fs.h>
 
-#define TRIGGER_RAPID_GC (!screen_on && power_supply_is_system_supplied())
+#define TRIGGER_RAPID_GC (!screen_on && power_supply_is_system_supplied() > 0)
 static bool screen_on = true;
 static LIST_HEAD(gc_sbi_list);
 static DEFINE_MUTEX(gc_wakelock_mutex);
@@ -150,8 +150,7 @@ do_gc:
 			sbi->rapid_gc = false;
 			rapid_gc_set_wakelock();
 			sbi->gc_mode = GC_NORMAL;
-			f2fs_info(sbi,
-				"No more rapid GC victim found, "
+			pr_info("F2FS-fs: No more rapid GC victim found, "
 				"sleeping for %u ms", wait_ms);
 
 			/*
@@ -159,7 +158,7 @@ do_gc:
 			 * that would not be read again anytime soon.
 			 */
 			mm_drop_caches(3);
-			f2fs_info(sbi, "dropped caches");
+			pr_info("F2FS-fs: dropped caches");
 		}
 
 		trace_f2fs_background_gc(sbi->sb, wait_ms,
@@ -206,6 +205,8 @@ int f2fs_start_gc_thread(struct f2fs_sb_info *sbi)
 		kvfree(gc_th);
 		sbi->gc_thread = NULL;
 	}
+	set_task_ioprio(sbi->gc_thread->f2fs_gc_task,
+			IOPRIO_PRIO_VALUE(IOPRIO_CLASS_IDLE, 0));
 out:
 	return err;
 }
@@ -243,8 +244,7 @@ static void f2fs_start_rapid_gc(void)
 			wake_up_interruptible_all(&sbi->gc_thread->gc_wait_queue_head);
 			wake_up_discard_thread(sbi, true);
 		} else {
-			f2fs_info(sbi,
-					"Invalid blocks lower than %d%%, "
+			pr_info("F2FS-fs: Invalid blocks lower than %d%%, "
 					"skipping rapid GC (%u / (%u - %u))",
 					RAPID_GC_LIMIT_INVALID_BLOCK,
 					invalid_blocks,

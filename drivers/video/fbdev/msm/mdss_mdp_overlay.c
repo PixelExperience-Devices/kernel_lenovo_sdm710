@@ -2883,12 +2883,15 @@ int mdss_mdp_overlay_kickoff(struct msm_fb_data_type *mfd,
 		return ret;
 	}
 
+	mdss_mdp_pp_commit_notify(ctl, true);
+
 	ret = mdss_iommu_ctrl(1);
 	if (IS_ERR_VALUE((unsigned long)ret)) {
 		pr_err("iommu attach failed rc=%d\n", ret);
 		mutex_unlock(&mdp5_data->ov_lock);
 		if (ctl->shared_lock)
 			mutex_unlock(ctl->shared_lock);
+		mdss_mdp_pp_commit_notify(ctl, false);
 		return ret;
 	}
 	mutex_lock(&mdp5_data->list_lock);
@@ -2970,6 +2973,8 @@ int mdss_mdp_overlay_kickoff(struct msm_fb_data_type *mfd,
 
 	if (!mdp5_data->kickoff_released)
 		mdss_mdp_ctl_notify(ctl, MDP_NOTIFY_FRAME_CTX_DONE);
+
+	mdss_mdp_pp_commit_notify(ctl, false);
 
 	if (IS_ERR_VALUE((unsigned long)ret))
 		goto commit_fail;
@@ -4218,6 +4223,12 @@ static ssize_t mdss_mdp_cmd_autorefresh_store(struct device *dev,
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)fbi->par;
 	struct mdss_mdp_ctl *ctl;
 
+	/*
+	 * The event timer was killed due to messing with pm qos, and no one
+	 * uses autorefresh anyway.
+	 */
+	return -EINVAL;
+
 	if (!mfd) {
 		pr_err("Invalid mfd structure\n");
 		rc = -EINVAL;
@@ -4748,6 +4759,12 @@ static int mdss_mdp_hw_cursor_pipe_update(struct msm_fb_data_type *mfd,
 	req->transp_mask = img->bg_color & ~(0xff << var->transp.offset);
 
 	if (mfd->cursor_buf && (cursor->set & FB_CUR_SETIMAGE)) {
+		if (img->width * img->height * 4 > cursor_frame_size) {
+			pr_err("cursor image size is too large\n");
+			ret = -EINVAL;
+			goto done;
+		}
+
 		ret = copy_from_user(mfd->cursor_buf, img->data,
 				     img->width * img->height * 4);
 		if (ret) {
@@ -5443,6 +5460,7 @@ static int __handle_overlay_prepare(struct msm_fb_data_type *mfd,
 		sorted_ovs = kcalloc(num_ovs, sizeof(*ip_ovs), GFP_KERNEL);
 		if (!sorted_ovs) {
 			pr_err("error allocating ovlist mem\n");
+			mutex_unlock(&mdp5_data->ov_lock);
 			return -ENOMEM;
 		}
 		memcpy(sorted_ovs, ip_ovs, num_ovs * sizeof(*ip_ovs));
@@ -5450,6 +5468,7 @@ static int __handle_overlay_prepare(struct msm_fb_data_type *mfd,
 		if (ret) {
 			pr_err("src_split_sort failed. ret=%d\n", ret);
 			kfree(sorted_ovs);
+			mutex_unlock(&mdp5_data->ov_lock);
 			return ret;
 		}
 	}
@@ -6756,6 +6775,8 @@ int mdss_mdp_overlay_init(struct msm_fb_data_type *mfd)
 
 	mdss_irq = mdss_intr_line();
 
+	/* This is for an unused feature (autorefresh) and breaks pm qos */
+#if 0
 	/* Adding event timer only for primary panel */
 	if ((mfd->index == 0) && (mfd->panel_info->type != WRITEBACK_PANEL)) {
 		mdp5_data->cpu_pm_hdl = add_event_timer(mdss_irq->irq,
@@ -6763,6 +6784,7 @@ int mdss_mdp_overlay_init(struct msm_fb_data_type *mfd)
 		if (!mdp5_data->cpu_pm_hdl)
 			pr_warn("%s: unable to add event timer\n", __func__);
 	}
+#endif
 
 	if (mfd->panel_info->cont_splash_enabled) {
 		rc = mdss_mdp_overlay_handoff(mfd);

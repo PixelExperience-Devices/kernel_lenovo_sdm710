@@ -52,7 +52,6 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/almk.h>
-#include <linux/show_mem_notifier.h>
 
 #ifdef CONFIG_HIGHMEM
 #define _ZONE ZONE_HIGHMEM
@@ -71,7 +70,7 @@
 static int enable_lmk = 1;
 module_param_named(enable_lmk, enable_lmk, int, 0644);
 
-static u32 lowmem_debug_level = 1;
+static u32 lowmem_debug_level = 0;
 static short lowmem_adj[6] = {
 	0,
 	1,
@@ -241,13 +240,19 @@ static void lmk_event_init(void)
 static unsigned long lowmem_count(struct shrinker *s,
 				  struct shrink_control *sc)
 {
+	int other_indirect;
+
 	if (!enable_lmk)
 		return 0;
+
+	other_indirect = global_node_page_state(NR_INDIRECTLY_RECLAIMABLE_BYTES) >>
+			PAGE_SHIFT;
 
 	return global_node_page_state(NR_ACTIVE_ANON) +
 		global_node_page_state(NR_ACTIVE_FILE) +
 		global_node_page_state(NR_INACTIVE_ANON) +
-		global_node_page_state(NR_INACTIVE_FILE);
+		global_node_page_state(NR_INACTIVE_FILE) +
+		other_indirect;
 }
 
 static atomic_t shift_adj = ATOMIC_INIT(0);
@@ -301,17 +306,21 @@ static int adjust_minadj(short *min_score_adj)
 static int lmk_vmpressure_notifier(struct notifier_block *nb,
 				   unsigned long action, void *data)
 {
-	int other_free, other_file;
+	int other_free, other_file, other_indirect;
 	unsigned long pressure = action;
 	int array_size = ARRAY_SIZE(lowmem_adj);
 
 	if (!enable_adaptive_lmk)
 		return 0;
 
+	other_indirect = global_node_page_state(NR_INDIRECTLY_RECLAIMABLE_BYTES) >>
+			PAGE_SHIFT;
+
 	if (pressure >= 95) {
 		other_file = global_node_page_state(NR_FILE_PAGES) -
 			global_node_page_state(NR_SHMEM) -
-			total_swapcache_pages();
+			total_swapcache_pages() +
+			other_indirect;
 		other_free = global_page_state(NR_FREE_PAGES);
 
 		atomic_set(&shift_adj, 1);
@@ -324,7 +333,8 @@ static int lmk_vmpressure_notifier(struct notifier_block *nb,
 
 		other_file = global_node_page_state(NR_FILE_PAGES) -
 			global_node_page_state(NR_SHMEM) -
-			total_swapcache_pages();
+			total_swapcache_pages() +
+			other_indirect;
 
 		other_free = global_page_state(NR_FREE_PAGES);
 
@@ -336,7 +346,8 @@ static int lmk_vmpressure_notifier(struct notifier_block *nb,
 	} else if (atomic_read(&shift_adj)) {
 		other_file = global_node_page_state(NR_FILE_PAGES) -
 			global_node_page_state(NR_SHMEM) -
-			total_swapcache_pages();
+			total_swapcache_pages() +
+			other_indirect;
 
 		other_free = global_page_state(NR_FREE_PAGES);
 		/*
@@ -631,6 +642,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 	int array_size = ARRAY_SIZE(lowmem_adj);
 	int other_free;
 	int other_file;
+	int other_indirect;
 
 	if (!mutex_trylock(&scan_mutex))
 		return 0;
@@ -642,14 +654,17 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		lowmem_notify_killzone_approach();
 #else
 	other_free = global_page_state(NR_FREE_PAGES) - totalreserve_pages;
+	other_indirect = global_node_page_state(NR_INDIRECTLY_RECLAIMABLE_BYTES) >>
+			PAGE_SHIFT;
 
 	if (global_node_page_state(NR_SHMEM) + total_swapcache_pages() +
 			global_node_page_state(NR_UNEVICTABLE) <
-			global_node_page_state(NR_FILE_PAGES))
+			global_node_page_state(NR_FILE_PAGES) + other_indirect)
 		other_file = global_node_page_state(NR_FILE_PAGES) -
 					global_node_page_state(NR_SHMEM) -
 					global_node_page_state(NR_UNEVICTABLE) -
-					total_swapcache_pages();
+					total_swapcache_pages() +
+					other_indirect;
 	else
 		other_file = 0;
 
@@ -753,6 +768,8 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		long cache_size = other_file * (long)(PAGE_SIZE / 1024);
 		long cache_limit = minfree * (long)(PAGE_SIZE / 1024);
 		long free = other_free * (long)(PAGE_SIZE / 1024);
+		unsigned long indirect =
+			global_node_page_state(NR_INDIRECTLY_RECLAIMABLE_BYTES) / 1024;
 
 		if (test_task_lmk_waiting(selected) &&
 		    (test_task_state(selected, TASK_UNINTERRUPTIBLE))) {
@@ -785,6 +802,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			"Total reserve is %ldkB\n"
 			"Total free pages is %ldkB\n"
 			"Total file cache is %ldkB\n"
+			"Total indirect cache is %lukB\n"
 			"GFP mask is 0x%x\n",
 			selected->comm, selected->pid, selected->tgid,
 			selected_oom_score_adj,
@@ -800,11 +818,11 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			(long)(PAGE_SIZE / 1024),
 			global_node_page_state(NR_FILE_PAGES) *
 			(long)(PAGE_SIZE / 1024),
+			indirect,
 			sc->gfp_mask);
 
 		if (lowmem_debug_level >= 2 && selected_oom_score_adj == 0) {
 			show_mem(SHOW_MEM_FILTER_NODES);
-			show_mem_call_notifiers();
 			dump_tasks(NULL, NULL);
 		}
 

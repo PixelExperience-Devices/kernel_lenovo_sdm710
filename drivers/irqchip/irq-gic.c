@@ -41,6 +41,7 @@
 #include <linux/irqchip.h>
 #include <linux/irqchip/chained_irq.h>
 #include <linux/irqchip/arm-gic.h>
+#include <linux/wakeup_reason.h>
 #include <linux/msm_rtb.h>
 
 #include <asm/cputype.h>
@@ -231,7 +232,7 @@ static void gic_unmask_irq(struct irq_data *d)
 
 static void gic_eoi_irq(struct irq_data *d)
 {
-	writel_relaxed_no_log(gic_irq(d), gic_cpu_base(d) + GIC_CPU_EOI);
+	writel_relaxed(gic_irq(d), gic_cpu_base(d) + GIC_CPU_EOI);
 }
 
 static void gic_eoimode1_eoi_irq(struct irq_data *d)
@@ -350,21 +351,21 @@ static void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 	void __iomem *cpu_base = gic_data_cpu_base(gic);
 
 	do {
-		irqstat = readl_relaxed_no_log(cpu_base + GIC_CPU_INTACK);
+		irqstat = readl_relaxed(cpu_base + GIC_CPU_INTACK);
 		irqnr = irqstat & GICC_IAR_INT_ID_MASK;
 
 		if (likely(irqnr > 15 && irqnr < 1020)) {
 			if (static_key_true(&supports_deactivate))
-				writel_relaxed_no_log(irqstat,
+				writel_relaxed(irqstat,
 						cpu_base + GIC_CPU_EOI);
 			handle_domain_irq(gic->domain, irqnr, regs);
 			uncached_logk(LOGK_IRQ, (void *)(uintptr_t)irqnr);
 			continue;
 		}
 		if (irqnr < 16) {
-			writel_relaxed_no_log(irqstat, cpu_base + GIC_CPU_EOI);
+			writel_relaxed(irqstat, cpu_base + GIC_CPU_EOI);
 			if (static_key_true(&supports_deactivate))
-				writel_relaxed_no_log(irqstat,
+				writel_relaxed(irqstat,
 						cpu_base + GIC_CPU_DEACTIVATE);
 #ifdef CONFIG_SMP
 			/*
@@ -384,12 +385,13 @@ static void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 	} while (1);
 }
 
-static void gic_handle_cascade_irq(struct irq_desc *desc)
+static bool gic_handle_cascade_irq(struct irq_desc *desc)
 {
 	struct gic_chip_data *chip_data = irq_desc_get_handler_data(desc);
 	struct irq_chip *chip = irq_desc_get_chip(desc);
 	unsigned int cascade_irq, gic_irq;
 	unsigned long status;
+	int handled = false;
 
 	chained_irq_enter(chip, desc);
 
@@ -403,10 +405,11 @@ static void gic_handle_cascade_irq(struct irq_desc *desc)
 	if (unlikely(gic_irq < 32 || gic_irq > 1020))
 		handle_bad_irq(desc);
 	else
-		generic_handle_irq(cascade_irq);
+		handled = generic_handle_irq(cascade_irq);
 
  out:
 	chained_irq_exit(chip, desc);
+	return handled;
 }
 
 static struct irq_chip gic_chip = {
@@ -655,17 +658,17 @@ void gic_cpu_save(struct gic_chip_data *gic)
 
 	ptr = raw_cpu_ptr(gic->saved_ppi_enable);
 	for (i = 0; i < DIV_ROUND_UP(32, 32); i++)
-		ptr[i] = readl_relaxed_no_log(dist_base +
+		ptr[i] = readl_relaxed(dist_base +
 				GIC_DIST_ENABLE_SET + i * 4);
 
 	ptr = raw_cpu_ptr(gic->saved_ppi_active);
 	for (i = 0; i < DIV_ROUND_UP(32, 32); i++)
-		ptr[i] = readl_relaxed_no_log(dist_base +
+		ptr[i] = readl_relaxed(dist_base +
 				GIC_DIST_ACTIVE_SET + i * 4);
 
 	ptr = raw_cpu_ptr(gic->saved_ppi_conf);
 	for (i = 0; i < DIV_ROUND_UP(32, 16); i++)
-		ptr[i] = readl_relaxed_no_log(dist_base +
+		ptr[i] = readl_relaxed(dist_base +
 				GIC_DIST_CONFIG + i * 4);
 }
 
@@ -687,30 +690,30 @@ void gic_cpu_restore(struct gic_chip_data *gic)
 
 	ptr = raw_cpu_ptr(gic->saved_ppi_enable);
 	for (i = 0; i < DIV_ROUND_UP(32, 32); i++) {
-		writel_relaxed_no_log(GICD_INT_EN_CLR_X32,
+		writel_relaxed(GICD_INT_EN_CLR_X32,
 			       dist_base + GIC_DIST_ENABLE_CLEAR + i * 4);
-		writel_relaxed_no_log(ptr[i], dist_base +
+		writel_relaxed(ptr[i], dist_base +
 				GIC_DIST_ENABLE_SET + i * 4);
 	}
 
 	ptr = raw_cpu_ptr(gic->saved_ppi_active);
 	for (i = 0; i < DIV_ROUND_UP(32, 32); i++) {
-		writel_relaxed_no_log(GICD_INT_EN_CLR_X32,
+		writel_relaxed(GICD_INT_EN_CLR_X32,
 			       dist_base + GIC_DIST_ACTIVE_CLEAR + i * 4);
-		writel_relaxed_no_log(ptr[i], dist_base +
+		writel_relaxed(ptr[i], dist_base +
 				GIC_DIST_ACTIVE_SET + i * 4);
 	}
 
 	ptr = raw_cpu_ptr(gic->saved_ppi_conf);
 	for (i = 0; i < DIV_ROUND_UP(32, 16); i++)
-		writel_relaxed_no_log(ptr[i], dist_base +
+		writel_relaxed(ptr[i], dist_base +
 				GIC_DIST_CONFIG + i * 4);
 
 	for (i = 0; i < DIV_ROUND_UP(32, 4); i++)
-		writel_relaxed_no_log(GICD_INT_DEF_PRI_X4,
+		writel_relaxed(GICD_INT_DEF_PRI_X4,
 					dist_base + GIC_DIST_PRI + i * 4);
 
-	writel_relaxed_no_log(GICC_INT_PRI_THRESHOLD,
+	writel_relaxed(GICC_INT_PRI_THRESHOLD,
 				cpu_base + GIC_CPU_PRIMASK);
 	gic_cpu_if_up(gic);
 }
@@ -804,7 +807,7 @@ static void gic_raise_softirq(const struct cpumask *mask, unsigned int irq)
 
 	if (unlikely(nr_cpu_ids == 1)) {
 		/* Only one CPU? let's do a self-IPI... */
-		writel_relaxed_no_log(2 << 24 | irq,
+		writel_relaxed(2 << 24 | irq,
 			       gic_data_dist_base(&gic_data[0]) + GIC_DIST_SOFTINT);
 		return;
 	}
@@ -822,7 +825,7 @@ static void gic_raise_softirq(const struct cpumask *mask, unsigned int irq)
 	dmb(ishst);
 
 	/* this always happens on GIC0 */
-	writel_relaxed_no_log(map << 16 | irq,
+	writel_relaxed(map << 16 | irq,
 			gic_data_dist_base(&gic_data[0]) + GIC_DIST_SOFTINT);
 
 	gic_unlock_irqrestore(flags);

@@ -842,19 +842,15 @@ config QPNP_MISC
 	  and the driver provides an API to check if this interrupt
 	  is available on the current PMIC chip.
 
-config BATTERY_SAVER
-	bool "Battery saver mode for kernelspace"
-	default y
+#Huaqin add for sim tray by xudongfang at 20180917 start
+config HQ_SIM_TRAY_CHECK
+	bool "check sim stry status"
+        default y
 	help
-	  This driver creates a sysfs toggle that can be enabled when
-	  battery saver mode is activated in userspace, and provides
-	  functions to check the status of battery saver and to activate
-	  it from anywhere in the kernel.
+	  this will create a node to show sim tray status.
 
-	  The former can be used to disable features that may otherwise
-	  drain battery faster, such as CPU and DDR boosting.
-
-	  If in doubt, say Y.
+	  If unsure, say N.
+#Huaqin add for sim tray by xudongfang at 20180917 end
 
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"

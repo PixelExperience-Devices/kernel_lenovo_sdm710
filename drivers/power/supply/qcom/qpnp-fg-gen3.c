@@ -2461,7 +2461,7 @@ static enum alarmtimer_restart fg_esr_filter_alarm_cb(struct alarm *alarm,
 	 * We cannot vote for awake votable here as that takes a mutex lock
 	 * and this is executed in an atomic context.
 	 */
-	pm_stay_awake(chip->dev);
+	pm_wakeup_event(chip->dev, 0);
 	schedule_work(&chip->esr_filter_work);
 
 	return ALARMTIMER_NORESTART;
@@ -2641,7 +2641,7 @@ static void fg_ttf_update(struct fg_chip *chip)
 	chip->ttf.last_ttf = 0;
 	chip->ttf.last_ms = 0;
 	mutex_unlock(&chip->ttf.lock);
-	schedule_delayed_work(&chip->ttf_work, msecs_to_jiffies(delay_ms));
+	mod_delayed_work(system_freezable_power_efficient_wq, &chip->ttf_work, msecs_to_jiffies(delay_ms));
 }
 
 static void restore_cycle_counter(struct fg_chip *chip)
@@ -3344,7 +3344,7 @@ done:
 out:
 	chip->soc_reporting_ready = true;
 	vote(chip->awake_votable, ESR_FCC_VOTER, true, 0);
-	schedule_delayed_work(&chip->pl_enable_work, msecs_to_jiffies(5000));
+	mod_delayed_work(system_freezable_power_efficient_wq, &chip->pl_enable_work, msecs_to_jiffies(5000));
 	vote(chip->awake_votable, PROFILE_LOAD, false, 0);
 	if (!work_pending(&chip->status_change_work)) {
 		fg_stay_awake(chip, FG_STATUS_NOTIFY_WAKE);
@@ -3377,7 +3377,7 @@ static void sram_dump_work(struct work_struct *work)
 	fg_dbg(chip, FG_STATUS, "SRAM Dump done at %lld.%d\n",
 		quotient, remainder);
 resched:
-	schedule_delayed_work(&chip->sram_dump_work,
+	mod_delayed_work(system_freezable_power_efficient_wq, &chip->sram_dump_work,
 			msecs_to_jiffies(fg_sram_dump_period_ms));
 }
 
@@ -3405,7 +3405,7 @@ static int fg_sram_dump_sysfs(const char *val, const struct kernel_param *kp)
 
 	chip = power_supply_get_drvdata(bms_psy);
 	if (fg_sram_dump)
-		schedule_delayed_work(&chip->sram_dump_work,
+		mod_delayed_work(system_freezable_power_efficient_wq, &chip->sram_dump_work,
 				msecs_to_jiffies(fg_sram_dump_period_ms));
 	else
 		cancel_delayed_work_sync(&chip->sram_dump_work);
@@ -3974,7 +3974,7 @@ static void ttf_work(struct work_struct *work)
 		/* keep the wake lock and prime the IBATT and VBATT buffers */
 		if (ttf < 0) {
 			/* delay for one FG cycle */
-			schedule_delayed_work(&chip->ttf_work,
+			mod_delayed_work(system_freezable_power_efficient_wq, &chip->ttf_work,
 							msecs_to_jiffies(1500));
 			mutex_unlock(&chip->ttf.lock);
 			return;
@@ -3991,7 +3991,7 @@ static void ttf_work(struct work_struct *work)
 	}
 
 	/* recurse every 10 seconds */
-	schedule_delayed_work(&chip->ttf_work, msecs_to_jiffies(10000));
+	mod_delayed_work(system_freezable_power_efficient_wq, &chip->ttf_work, msecs_to_jiffies(10000));
 end_work:
 	vote(chip->awake_votable, TTF_PRIMING, false, 0);
 	mutex_unlock(&chip->ttf.lock);
@@ -4824,7 +4824,7 @@ static irqreturn_t fg_batt_missing_irq_handler(int irq, void *data)
 	}
 
 	clear_battery_profile(chip);
-	schedule_delayed_work(&chip->profile_load_work, 0);
+	mod_delayed_work(system_freezable_power_efficient_wq, &chip->profile_load_work, 0);
 
 	if (chip->fg_psy)
 		power_supply_changed(chip->fg_psy);
@@ -5703,7 +5703,10 @@ static void fg_cleanup(struct fg_chip *chip)
 	}
 
 	alarm_try_to_cancel(&chip->esr_filter_alarm);
+	#ifdef CONFIG_DEBUG_FS
 	debugfs_remove_recursive(chip->dfs_root);
+	#endif
+	
 	if (chip->awake_votable)
 		destroy_votable(chip->awake_votable);
 
@@ -5844,12 +5847,12 @@ static int fg_gen3_probe(struct platform_device *pdev)
 	spin_lock_init(&chip->suspend_lock);
 	init_completion(&chip->soc_update);
 	init_completion(&chip->soc_ready);
-	INIT_DELAYED_WORK(&chip->profile_load_work, profile_load_work);
-	INIT_DELAYED_WORK(&chip->pl_enable_work, pl_enable_work);
+	INIT_DEFERRABLE_WORK(&chip->profile_load_work, profile_load_work);
+	INIT_DEFERRABLE_WORK(&chip->pl_enable_work, pl_enable_work);
 	INIT_WORK(&chip->status_change_work, status_change_work);
 	INIT_WORK(&chip->esr_sw_work, fg_esr_sw_work);
-	INIT_DELAYED_WORK(&chip->ttf_work, ttf_work);
-	INIT_DELAYED_WORK(&chip->sram_dump_work, sram_dump_work);
+	INIT_DEFERRABLE_WORK(&chip->ttf_work, ttf_work);
+	INIT_DEFERRABLE_WORK(&chip->sram_dump_work, sram_dump_work);
 	INIT_WORK(&chip->esr_filter_work, esr_filter_work);
 	alarm_init(&chip->esr_filter_alarm, ALARM_BOOTTIME,
 			fg_esr_filter_alarm_cb);
@@ -5929,8 +5932,10 @@ static int fg_gen3_probe(struct platform_device *pdev)
 	/* Keep BATT_MISSING_IRQ disabled until we require it */
 	vote(chip->batt_miss_irq_en_votable, BATT_MISS_IRQ_VOTER, false, 0);
 
+	#ifdef CONFIG_DEBUG_fS
 	fg_debugfs_create(chip);
-
+	#endif
+	
 	rc = fg_get_battery_voltage(chip, &volt_uv);
 	if (!rc)
 		rc = fg_get_prop_capacity(chip, &msoc);
@@ -5956,7 +5961,7 @@ static int fg_gen3_probe(struct platform_device *pdev)
 	}
 
 	device_init_wakeup(chip->dev, true);
-	schedule_delayed_work(&chip->profile_load_work, 0);
+	mod_delayed_work(system_freezable_power_efficient_wq, &chip->profile_load_work, 0);
 
 	pr_debug("FG GEN3 driver probed successfully\n");
 	return 0;
@@ -5993,13 +5998,13 @@ static int fg_gen3_resume(struct device *dev)
 	if (rc < 0)
 		pr_err("Error in configuring ESR timer, rc=%d\n", rc);
 
-	schedule_delayed_work(&chip->ttf_work, 0);
+	mod_delayed_work(system_freezable_power_efficient_wq, &chip->ttf_work, 0);
 	if (fg_sram_dump)
-		schedule_delayed_work(&chip->sram_dump_work,
+		mod_delayed_work(system_freezable_power_efficient_wq, &chip->sram_dump_work,
 				msecs_to_jiffies(fg_sram_dump_period_ms));
 
 	if (!work_pending(&chip->status_change_work)) {
-		pm_stay_awake(chip->dev);
+		pm_wakeup_event(chip->dev, 0);
 		schedule_work(&chip->status_change_work);
 	}
 

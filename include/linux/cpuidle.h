@@ -200,8 +200,6 @@ extern int cpuidle_find_deepest_state(struct cpuidle_driver *drv,
 extern int cpuidle_enter_freeze(struct cpuidle_driver *drv,
 				struct cpuidle_device *dev);
 extern void cpuidle_use_deepest_state(bool enable);
-extern int cpuidle_use_deepest_state_mask(const struct cpumask *target,
-					  bool enable);
 #else
 static inline int cpuidle_find_deepest_state(struct cpuidle_driver *drv,
 					     struct cpuidle_device *dev)
@@ -211,11 +209,6 @@ static inline int cpuidle_enter_freeze(struct cpuidle_driver *drv,
 {return -ENODEV; }
 static inline void cpuidle_use_deepest_state(bool enable)
 {
-}
-static inline int cpuidle_use_deepest_state_mask(const struct cpumask *target,
-						 bool enable)
-{
-	return -ENODEV;
 }
 #endif
 
@@ -248,8 +241,6 @@ struct cpuidle_governor {
 	int  (*select)		(struct cpuidle_driver *drv,
 					struct cpuidle_device *dev);
 	void (*reflect)		(struct cpuidle_device *dev, int index);
-
-	struct module 		*owner;
 };
 
 #ifdef CONFIG_CPU_IDLE
@@ -282,5 +273,13 @@ static inline int cpuidle_register_governor(struct cpuidle_governor *gov)
 								\
 	__ret ? -1 : idx;					\
 })
+
+#ifdef CONFIG_SMP
+void cpuidle_set_idle_cpu(unsigned int cpu);
+void cpuidle_clear_idle_cpu(unsigned int cpu);
+#else
+static inline void cpuidle_set_idle_cpu(unsigned int cpu) { }
+static inline void cpuidle_clear_idle_cpu(unsigned int cpu) { }
+#endif
 
 #endif /* _LINUX_CPUIDLE_H */

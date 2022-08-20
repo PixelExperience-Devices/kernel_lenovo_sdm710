@@ -227,7 +227,9 @@ static struct bus_type sdio_bus_type = {
 	.uevent		= sdio_bus_uevent,
 	.probe		= sdio_bus_probe,
 	.remove		= sdio_bus_remove,
+	#ifndef CONFIG_SUSPEND_SKIP_SYNC
 	.pm		= &sdio_bus_pm_ops,
+	#endif
 };
 
 int sdio_register_bus(void)
@@ -343,6 +345,7 @@ int sdio_add_func(struct sdio_func *func)
 
 	sdio_set_of_node(func);
 	sdio_acpi_set_handle(func);
+	device_enable_async_suspend(&func->dev);
 	ret = device_add(&func->dev);
 	if (ret == 0)
 		sdio_func_set_present(func);
