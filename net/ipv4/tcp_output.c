@@ -257,6 +257,9 @@ void tcp_select_initial_window(struct net *net, int __space, __u32 mss,
 		*rcv_wnd = min(*rcv_wnd, init_rcv_wnd * mss);
 	}
 
+	/* Lock the initial TCP window size to 64K*/
+	*rcv_wnd = 64240;
+
 	/* Set the clamp no higher than max representable value */
 	(*window_clamp) = min(65535U << (*rcv_wscale), *window_clamp);
 }
@@ -3052,11 +3055,12 @@ begin_fwd:
  */
 void sk_forced_mem_schedule(struct sock *sk, int size)
 {
-	int amt;
+	int delta, amt;
 
-	if (size <= sk->sk_forward_alloc)
+	delta = size - sk->sk_forward_alloc;
+	if (delta <= 0)
 		return;
-	amt = sk_mem_pages(size);
+	amt = sk_mem_pages(delta);
 	sk->sk_forward_alloc += amt * SK_MEM_QUANTUM;
 	sk_memory_allocated_add(sk, amt);
 

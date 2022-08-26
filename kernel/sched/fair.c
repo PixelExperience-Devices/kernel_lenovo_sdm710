@@ -135,7 +135,7 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
 unsigned int sysctl_sched_wakeup_granularity = 2500000UL;
 unsigned int normalized_sysctl_sched_wakeup_granularity = 2500000UL;
 
-const_debug unsigned int sysctl_sched_migration_cost = 500000UL;
+unsigned int __read_mostly sysctl_sched_migration_cost = 500000UL;
 
 /*
  * The exponential sliding  window over which load is averaged for shares
@@ -648,6 +648,7 @@ struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq)
 
 	return rb_entry(last, struct sched_entity, run_node);
 }
+#endif
 
 /**************************************************************
  * Scheduling class statistics methods:
@@ -675,7 +676,6 @@ int sched_proc_update_handler(struct ctl_table *table, int write,
 
 	return 0;
 }
-#endif
 
 /*
  * delta /= w
@@ -8548,12 +8548,12 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 	if (env->flags & LBF_IGNORE_PREFERRED_CLUSTER_TASKS &&
 			 !preferred_cluster(cpu_rq(env->dst_cpu)->cluster, p))
 		return 0;
+#endif
 
 	/* Don't detach task if it doesn't fit on the destination */
 	if (env->flags & LBF_IGNORE_BIG_TASKS &&
 		!task_fits_max(p, env->dst_cpu))
 		return 0;
-#endif
 
 	if (task_running(env->src_rq, p)) {
 		schedstat_inc(p->se.statistics.nr_failed_migrations_running);

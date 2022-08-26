@@ -784,6 +784,19 @@ config PROCESS_RECLAIM
 
 	 Any other vaule is ignored.
 
+config PRLMK
+	bool "Enable PRLMK"
+	depends on TASK_XACCT && ZRAM
+	depends on !PSI && !MEMCG
+	depends on !PROCESS_RECLAIM && !ANDROID_LOW_MEMORY_KILLER && !ANDROID_SIMPLE_LMK
+	default n
+	help
+	  PRLMK is a custom low-memory-killer for Android, based on the process reclaim driver.
+
+config PRLMK_DISABLE_KILL_HEAVIEST_GID
+	bool "PRLMK: Set kill_heaviest_gid to false"
+	depends on PRLMK
+
 config ARCH_SUPPORTS_SPECULATIVE_PAGE_FAULT
        def_bool n
 

@@ -1789,7 +1789,7 @@ extern void check_preempt_curr(struct rq *rq, struct task_struct *p, int flags);
 
 extern const_debug unsigned int sysctl_sched_time_avg;
 extern const_debug unsigned int sysctl_sched_nr_migrate;
-extern const_debug unsigned int sysctl_sched_migration_cost;
+extern unsigned int __read_mostly sysctl_sched_migration_cost;
 
 static inline u64 sched_avg_period(void)
 {
@@ -2864,7 +2864,7 @@ static inline u64 scale_load_to_cpu(u64 load, int cpu)
 
 static inline int cpu_capacity(int cpu)
 {
-	return SCHED_CAPACITY_SCALE;
+	return capacity_orig_of(cpu);
 }
 
 static inline void set_preferred_cluster(struct related_thread_group *grp) { }

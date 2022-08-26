@@ -59,7 +59,7 @@ MODULE_PARM_DESC(swfdetect, "Enable soft fault detection");
 #define DRIVER_VERSION_MAJOR   3
 #define DRIVER_VERSION_MINOR   1
 
-#define KGSL_LOG_LEVEL_DEFAULT 3
+#define KGSL_LOG_LEVEL_DEFAULT 0
 
 static void adreno_input_work(struct work_struct *work);
 static unsigned int counter_delta(struct kgsl_device *device,
@@ -1172,17 +1172,17 @@ static int adreno_of_get_power(struct adreno_device *adreno_dev,
 	/* get pm-qos-active-latency, set it to default if not found */
 	if (of_property_read_u32(node, "qcom,pm-qos-active-latency",
 		&device->pwrctrl.pm_qos_active_latency))
-		device->pwrctrl.pm_qos_active_latency = 501;
+		device->pwrctrl.pm_qos_active_latency = 1000;
 
 	/* get pm-qos-cpu-mask-latency, set it to default if not found */
 	if (of_property_read_u32(node, "qcom,l2pc-cpu-mask-latency",
 		&device->pwrctrl.pm_qos_cpu_mask_latency))
-		device->pwrctrl.pm_qos_cpu_mask_latency = 501;
+		device->pwrctrl.pm_qos_cpu_mask_latency = 1000;
 
 	/* get pm-qos-wakeup-latency, set it to default if not found */
 	if (of_property_read_u32(node, "qcom,pm-qos-wakeup-latency",
 		&device->pwrctrl.pm_qos_wakeup_latency))
-		device->pwrctrl.pm_qos_wakeup_latency = 101;
+		device->pwrctrl.pm_qos_wakeup_latency = 100;
 
 	if (of_property_read_u32(node, "qcom,idle-timeout", &timeout))
 		timeout = 80;
@@ -3747,6 +3747,9 @@ static void adreno_iommu_sync(struct kgsl_device *device, bool sync)
 	struct scm_desc desc = {0};
 	int ret;
 
+	if (!ADRENO_QUIRK(ADRENO_DEVICE(device), ADRENO_QUIRK_IOMMU_SYNC))
+		return;
+
 	if (sync == true) {
 		mutex_lock(&kgsl_mmu_sync);
 		desc.args[0] = true;
@@ -3763,25 +3766,29 @@ static void adreno_iommu_sync(struct kgsl_device *device, bool sync)
 	}
 }
 
-static void _regulator_disable(struct kgsl_regulator *regulator, bool poll)
+static void
+_regulator_disable(struct kgsl_regulator *regulator, unsigned int timeout)
 {
-	unsigned long wait_time = jiffies + msecs_to_jiffies(200);
+	unsigned long wait_time;
 
 	if (IS_ERR_OR_NULL(regulator->reg))
 		return;
 
 	regulator_disable(regulator->reg);
 
-	if (poll == false)
-		return;
+	wait_time = jiffies + msecs_to_jiffies(timeout);
 
+	/* Poll for regulator status to ensure it's OFF */
 	while (!time_after(jiffies, wait_time)) {
 		if (!regulator_is_enabled(regulator->reg))
 			return;
-		cpu_relax();
+		usleep_range(10, 100);
 	}
 
-	KGSL_CORE_ERR("regulator '%s' still on after 200ms\n", regulator->name);
+	if (!regulator_is_enabled(regulator->reg))
+		return;
+
+	KGSL_CORE_ERR("regulator '%s' disable timed out\n", regulator->name);
 }
 
 static void adreno_regulator_disable_poll(struct kgsl_device *device)
@@ -3789,18 +3796,13 @@ static void adreno_regulator_disable_poll(struct kgsl_device *device)
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 	int i;
-
-	/* Fast path - hopefully we don't need this quirk */
-	if (!ADRENO_QUIRK(adreno_dev, ADRENO_QUIRK_IOMMU_SYNC)) {
-		for (i = KGSL_MAX_REGULATORS - 1; i >= 0; i--)
-			_regulator_disable(&pwr->regulators[i], false);
-		return;
-	}
+	unsigned int timeout =
+		ADRENO_QUIRK(adreno_dev, ADRENO_QUIRK_IOMMU_SYNC) ? 200 : 5000;
 
 	adreno_iommu_sync(device, true);
 
-	for (i = 0; i < KGSL_MAX_REGULATORS; i++)
-		_regulator_disable(&pwr->regulators[i], true);
+	for (i = KGSL_MAX_REGULATORS - 1; i >= 0; i--)
+		_regulator_disable(&pwr->regulators[i], timeout);
 
 	adreno_iommu_sync(device, false);
 }
