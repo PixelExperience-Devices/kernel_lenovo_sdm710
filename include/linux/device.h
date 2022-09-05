@@ -814,7 +814,9 @@ struct device {
 	struct dev_pin_info	*pins;
 #endif
 #ifdef CONFIG_GENERIC_MSI_IRQ
+# ifdef CONFIG_PRODUCT_KUNLUN2
 	raw_spinlock_t		msi_lock;
+# endif
 	struct list_head	msi_list;
 #endif
 
